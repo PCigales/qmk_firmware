@@ -15,6 +15,8 @@
  */
 
 #pragma once
+#define DYNAMIC_KEYMAP_LAYER_COUNT 2
+#define USB_DEFAULT_BUFFER_CAPACITY 2
 
 /* USB polling rate in milliseconds */
 #define USB_POLLING_INTERVAL_MS 2
