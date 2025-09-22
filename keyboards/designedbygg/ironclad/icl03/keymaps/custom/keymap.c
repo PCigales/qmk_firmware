@@ -20,6 +20,14 @@
 #define RSF(f) (QK_RSFT | (KC_F##f))
 #define LCF(f) (QK_LCTL | (KC_F##f))
 #define RCF(f) (QK_RCTL | (KC_F##f))
+enum user_keycode_defines {
+  QK_RGB_MATRIX_RESET = SAFE_RANGE,
+  QK_RGB_MATRIX_SOLID_COLOR,
+  QK_RGB_MATRIX_ALPHAS_MODS,
+  RM_RSET = QK_RGB_MATRIX_RESET,
+  RM_SLDC = QK_RGB_MATRIX_SOLID_COLOR,
+  RM_ALMD = QK_RGB_MATRIX_ALPHAS_MODS
+};
 
 const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
     /*
@@ -51,9 +59,9 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
     [1] = LAYOUT_fullsize_extended_iso(
         QK_BOOT,          KC_F13,  KC_F14,  KC_F15,  KC_F16,  KC_F17,  KC_F18,  KC_F19,  KC_F20,  KC_F21,  KC_F22,  KC_F23,  KC_F24,     _______, _______, KC_SLEP,    _______, RM_TOGG, RM_VALD, RM_VALU,
 
-        RCF(21), LSF(22), RSF(22), LCF(22), RCF(22), LSF(23), RSF(23), LCF(23), RCF(23), LSF(24), RSF(24), LCF(24), RCF(24), _______,    XXXXXXX, XXXXXXX, KC_MPRV,    _______, XXXXXXX, XXXXXXX, RM_SPDD,
+        RCF(21), LSF(22), RSF(22), LCF(22), RCF(22), LSF(23), RSF(23), LCF(23), RCF(23), LSF(24), RSF(24), LCF(24), RCF(24), _______,    XXXXXXX, XXXXXXX, KC_MPRV,    _______, RM_ALMD, RM_SLDC, RM_SPDD,
         XXXXXXX, LSF(13), RSF(13), LCF(13), RCF(13), LSF(14), RSF(14), LCF(14), RCF(14), LSF(15), RSF(15), LCF(15), RCF(15),             KC_PWR,  XXXXXXX, KC_MNXT,    XXXXXXX, RM_SATU, RM_PREV, RM_SPDU,
-        _______, LSF(16), RSF(16), LCF(16), RCF(16), LSF(17), RSF(17), LCF(17), RCF(17), LSF(18), RSF(18), LCF(18), RCF(18), _______,                                  RM_HUED, KC_CNCL, RM_HUEU,
+        _______, LSF(16), RSF(16), LCF(16), RCF(16), LSF(17), RSF(17), LCF(17), RCF(17), LSF(18), RSF(18), LCF(18), RCF(18), _______,                                  RM_HUED, RM_RSET, RM_HUEU,
         _______, LSF(19), RSF(19), LCF(19), RCF(19), LSF(20), RSF(20), LCF(20), RCF(20), LSF(21), RSF(21), LCF(21),          _______,             _______,             XXXXXXX, RM_SATD, RM_NEXT, XXXXXXX,
         _______, GU_TOGG,  _______,                           KC_MPLY,                            _______, GU_TOGG, _______, _______,    _______, _______, _______,    XXXXXXX,          XXXXXXX
     )
@@ -74,25 +82,66 @@ void keyboard_post_init_user(void) {
 }
 #endif
 
+struct {
+  bool rgui_other_key_pressed : 1;
+  bool keymap_config_no_gui : 1;
+  uint8_t reserved : 6;
+} state_user;
+
+#ifdef LED_WIN_BLOCK_PIN
+void keyboard_pre_init_user(void) {
+	gpio_set_pin_output(LED_WIN_BLOCK_PIN);
+	gpio_write_pin(LED_WIN_BLOCK_PIN, ! LED_PIN_ON_STATE);
+}
+void housekeeping_task_user(void) {
+  if (keymap_config.no_gui != state_user.keymap_config_no_gui) {
+	  gpio_write_pin(LED_WIN_BLOCK_PIN, (state_user.keymap_config_no_gui = keymap_config.no_gui) ^ ! LED_PIN_ON_STATE);
+  }
+}
+void suspend_power_down_user(void) {
+  gpio_write_pin(LED_WIN_BLOCK_PIN, ! LED_PIN_ON_STATE);
+}
+void suspend_wakeup_init_user(void) {
+  gpio_write_pin(LED_WIN_BLOCK_PIN, keymap_config.no_gui ^ ! LED_PIN_ON_STATE);
+}
+#endif
+
 bool process_record_user(uint16_t keycode, keyrecord_t *record) {
-  static bool key_pressed;
   if (keycode == KC_RGUI) {
-    if (! (record->event.pressed || key_pressed)) {
+    if (! (record->event.pressed || state_user.rgui_other_key_pressed)) {
       tap_code(KC_APP);
     }
-    key_pressed = false;
+    state_user.rgui_other_key_pressed = false;
     return true;
   }
-  key_pressed = true;
+  state_user.rgui_other_key_pressed = true;
 #ifdef RGB_MATRIX_ENABLE
+  if (keycode < QK_RGB_MATRIX_ON) {return true;}
 #ifdef RGB_TRIGGER_ON_KEYDOWN
   bool key_triggered = record->event.pressed;
 #else
   bool key_triggered = ! record->event.pressed;
 #endif
   switch (keycode) {
-    case KC_CNCL:
+    case QK_RGB_MATRIX_RESET:
       if (key_triggered) {rgb_matrix_reload_from_eeprom();}
+      return false;
+    case QK_RGB_MATRIX_SOLID_COLOR:
+      if (key_triggered) {
+        rgb_matrix_enable_noeeprom();
+        rgb_matrix_mode_noeeprom(RGB_MATRIX_SOLID_COLOR);
+        rgb_matrix_sethsv_noeeprom(31, 33, 160);
+      }
+      return false;
+    case QK_RGB_MATRIX_ALPHAS_MODS:
+#ifdef ENABLE_RGB_MATRIX_ALPHAS_MODS
+      if (key_triggered) {
+        rgb_matrix_enable_noeeprom();
+        rgb_matrix_mode_noeeprom(RGB_MATRIX_ALPHAS_MODS);
+        rgb_matrix_sethsv_noeeprom(10, 140, 160);
+        rgb_matrix_set_speed_noeeprom(65);
+      }
+#endif
       return false;
     case QK_RGB_MATRIX_ON:
       if (key_triggered) {rgb_matrix_enable_noeeprom();}
@@ -101,47 +150,36 @@ bool process_record_user(uint16_t keycode, keyrecord_t *record) {
       if (key_triggered) {rgb_matrix_disable_noeeprom();}
       return false;
     case QK_RGB_MATRIX_TOGGLE:
-    case QK_UNDERGLOW_TOGGLE:
       if (key_triggered) {rgb_matrix_toggle_noeeprom();}
       return false;
     case QK_RGB_MATRIX_MODE_NEXT:
-    case QK_UNDERGLOW_MODE_NEXT:
       if (key_triggered) {rgb_matrix_step_noeeprom();}
       return false;
     case QK_RGB_MATRIX_MODE_PREVIOUS:
-    case QK_UNDERGLOW_MODE_PREVIOUS:
       if (key_triggered) {rgb_matrix_step_reverse_noeeprom();}
       return false;
     case QK_RGB_MATRIX_HUE_UP:
-    case QK_UNDERGLOW_HUE_UP:
       if (key_triggered) {rgb_matrix_increase_hue_noeeprom();}
       return false;
     case QK_RGB_MATRIX_HUE_DOWN:
-    case QK_UNDERGLOW_HUE_DOWN:
       if (key_triggered) {rgb_matrix_decrease_hue_noeeprom();}
       return false;
     case QK_RGB_MATRIX_SATURATION_UP:
-    case QK_UNDERGLOW_SATURATION_UP:
       if (key_triggered) {rgb_matrix_increase_sat_noeeprom();}
       return false;
     case QK_RGB_MATRIX_SATURATION_DOWN:
-    case QK_UNDERGLOW_SATURATION_DOWN:
       if (key_triggered) {rgb_matrix_decrease_sat_noeeprom();}
       return false;
     case QK_RGB_MATRIX_VALUE_UP:
-    case QK_UNDERGLOW_VALUE_UP:
       if (key_triggered) {rgb_matrix_increase_val_noeeprom();}
       return false;
     case QK_RGB_MATRIX_VALUE_DOWN:
-    case QK_UNDERGLOW_VALUE_DOWN:
       if (key_triggered) {rgb_matrix_decrease_val_noeeprom();}
       return false;
     case QK_RGB_MATRIX_SPEED_UP:
-    case QK_UNDERGLOW_SPEED_UP:
       if (key_triggered) {rgb_matrix_increase_speed_noeeprom();}
       return false;
     case QK_RGB_MATRIX_SPEED_DOWN:
-    case QK_UNDERGLOW_SPEED_DOWN:
       if (key_triggered) {rgb_matrix_decrease_speed_noeeprom();}
       return false;
   }
